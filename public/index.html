@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="uk">
+    <head>
+        <meta charset="utf-8" />
+        <title>Pi WebRTC Receiver with Vehicle Control</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap"
+            rel="stylesheet"
+        />
+        <style>
+            body {
+                font-family: "Inter", sans-serif;
+            }
+            /* Відзеркалення прибрано */
+            #video {
+                /* transform: scaleX(-1); - ПРИБРАНО */
+            }
+            .disconnected {
+                background-color: #fecaca;
+                color: #991b1b;
+            }
+            .connecting {
+                background-color: #dbeafe;
+                color: #1e40af;
+            }
+            .connected {
+                background-color: #d1fae5;
+                color: #065f46;
+            }
+            .control-btn,
+            .size-btn,
+            #fullscreenBtn {
+                padding: 0.75rem;
+                text-align: center;
+                border: 1px solid #d1d5db;
+                border-radius: 0.5rem;
+                background-color: #f9fafb;
+                transition: background-color 0.15s;
+                user-select: none;
+            }
+            .control-btn {
+                font-size: 1.5rem;
+                padding: 1rem;
+            }
+            .control-btn:hover,
+            .size-btn:hover,
+            #fullscreenBtn:hover {
+                background-color: #e5e7eb;
+            }
+            .control-btn:active,
+            .size-btn:active,
+            #fullscreenBtn:active {
+                background-color: #d1d5db;
+            }
+            .size-btn.active {
+                background-color: #3b82f6;
+                color: white;
+            }
+            .fullscreen-btn {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                background: rgba(0, 0, 0, 0.7);
+                color: white;
+                border: none;
+                padding: 8px 12px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+                z-index: 10;
+                opacity: 0;
+                transition: opacity 0.3s ease;
+            }
+            .video-container:hover .fullscreen-btn {
+                opacity: 1;
+            }
+            .fullscreen-btn:hover {
+                background: rgba(0, 0, 0, 0.9);
+            }
+            .size-controls {
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                justify-content: center;
+                margin-bottom: 1rem;
+            }
+            @media (max-width: 768px) {
+                .desktop-layout {
+                    flex-direction: column;
+                }
+                .video-container {
+                    width: 100% !important;
+                    max-width: 100% !important;
+                }
+            }
+        </style>
+    </head>
+    <body class="bg-gray-100 min-h-screen">
+        <div class="container mx-auto p-4">
+            <h3 class="text-2xl font-bold text-gray-800 mb-6 text-center">
+                Live Stream from Raspberry Pi with Vehicle Control
+            </h3>
+
+            <div class="flex justify-center mb-4">
+                <div
+                    id="status"
+                    class="w-full max-w-md p-3 text-center rounded-lg shadow-md disconnected"
+                >
+                    Disconnected
+                </div>
+            </div>
+
+            <div class="flex justify-center mb-6">
+                <div
+                    id="connectContainer"
+                    class="w-full max-w-md bg-white p-6 rounded-lg shadow-md flex flex-col items-center"
+                >
+                    <label for="deviceId" class="text-gray-700 text-lg mb-2"
+                        >Device ID:</label
+                    >
+                    <input
+                        type="text"
+                        id="deviceId"
+                        placeholder="Enter device name"
+                        value="vid"
+                        class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
+                    />
+                    <div id="connectBtnContainer" class="w-full">
+                        <button
+                            id="connectBtn"
+                            class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200"
+                        >
+                            Connect to Stream
+                        </button>
+                    </div>
+                    <div id="disconnectBtnContainer" class="w-full hidden">
+                        <button
+                            id="disconnectBtn"
+                            class="w-full bg-red-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors duration-200"
+                        >
+                            Disconnect
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sizeControls" class="size-controls hidden">
+                <span class="text-gray-700 font-medium">Розмір відео:</span>
+                <button class="size-btn" data-size="small">Маленький</button>
+                <button class="size-btn active" data-size="medium">
+                    Середній
+                </button>
+                <button class="size-btn" data-size="large">Великий</button>
+                <button class="size-btn" data-size="extra-large">
+                    Максимальний
+                </button>
+            </div>
+
+            <div class="desktop-layout flex gap-6 justify-center items-start">
+                <div class="video-container relative" id="videoContainer">
+                    <video
+                        id="video"
+                        autoplay
+                        playsinline
+                        muted
+                        controls
+                        class="border border-gray-300 rounded-lg shadow-md bg-black transition-all duration-300"
+                        style="width: 800px; max-width: 90vw"
+                    ></video>
+                    <button class="fullscreen-btn" id="fullscreenBtn">
+                        ⛶ Повний екран
+                    </button>
+                </div>
+                <div
+                    id="controlsContainer"
+                    class="hidden bg-white p-6 rounded-lg shadow-md flex-shrink-0"
+                    style="width: 320px"
+                >
+                    <h4
+                        class="text-xl font-semibold text-gray-800 mb-4 text-center"
+                    >
+                        Vehicle Controls
+                    </h4>
+                    <div class="mb-4 w-full">
+                        <label
+                            for="speedSlider"
+                            class="block text-gray-700 text-sm font-medium mb-1 text-center"
+                            >Speed: <span id="speedValue">50</span>%</label
+                        >
+                        <input
+                            type="range"
+                            id="speedSlider"
+                            min="0"
+                            max="100"
+                            value="50"
+                            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                        />
+                    </div>
+                    <div class="grid grid-cols-3 gap-3 text-center">
+                        <div></div>
+                        <button id="forwardBtn" class="control-btn">↑</button>
+                        <div></div>
+                        <button id="leftBtn" class="control-btn">←</button>
+                        <button
+                            id="stopBtn"
+                            class="control-btn bg-red-500 text-white"
+                        >
+                            ■
+                        </button>
+                        <button id="rightBtn" class="control-btn">→</button>
+                        <div></div>
+                        <button id="backwardBtn" class="control-btn">↓</button>
+                        <div></div>
+                    </div>
+                    <p class="text-center text-gray-600 mt-4 text-sm">
+                        Використовуйте стрілки або WASD та пробіл (стоп)
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let pc, ws;
+            let reconnectAttempts = 0;
+            const maxReconnectAttempts = 10;
+            let reconnectTimer = null;
+            let isManualDisconnect = false;
+            let connectionLostTime = null;
+
+            const statusEl = document.getElementById("status");
+            const speedSlider = document.getElementById("speedSlider");
+            const speedValue = document.getElementById("speedValue");
+            const videoEl = document.getElementById("video");
+            const videoContainer = document.getElementById("videoContainer");
+            const fullscreenBtn = document.getElementById("fullscreenBtn");
+            const sizeControls = document.getElementById("sizeControls");
+
+            const connectBtnContainer = document.getElementById(
+                "connectBtnContainer",
+            );
+            const disconnectBtnContainer = document.getElementById(
+                "disconnectBtnContainer",
+            );
+            const connectBtn = document.getElementById("connectBtn");
+            const disconnectBtn = document.getElementById("disconnectBtn");
+            const controlsContainer =
+                document.getElementById("controlsContainer");
+            const deviceIdInput = document.getElementById("deviceId");
+
+            // ✅ --- ФІНАЛЬНИЙ ШТРИХ: Обробник для коректного закриття з'єднання --- ✅
+            window.addEventListener("beforeunload", () => {
+                isManualDisconnect = true;
+                if (reconnectTimer) {
+                    clearTimeout(reconnectTimer);
+                    reconnectTimer = null;
+                }
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    console.log(
+                        "Page is unloading. Closing WebSocket connection cleanly.",
+                    );
+                    ws.close(1001, "Page Unloaded");
+                }
+                if (pc) {
+                    pc.close();
+                }
+            });
+
+            // ✅ --- АВТОМАТИЧНИЙ РЕКОНЕКТ --- ✅
+            function scheduleReconnect() {
+                if (
+                    isManualDisconnect ||
+                    reconnectAttempts >= maxReconnectAttempts
+                ) {
+                    if (reconnectAttempts >= maxReconnectAttempts) {
+                        updateStatus(
+                            "Максимум спроб підключення досягнуто",
+                            "disconnected",
+                        );
+                    }
+                    return;
+                }
+
+                reconnectAttempts++;
+                const delay = Math.min(
+                    1000 * Math.pow(2, reconnectAttempts - 1),
+                    30000,
+                ); // Експоненціальна затримка до 30 сек
+
+                updateStatus(
+                    `Реконект через ${Math.ceil(delay / 1000)}с (спроба ${reconnectAttempts}/${maxReconnectAttempts})`,
+                    "connecting",
+                );
+
+                reconnectTimer = setTimeout(() => {
+                    console.log(
+                        `🔄 Attempting reconnect ${reconnectAttempts}/${maxReconnectAttempts}`,
+                    );
+                    initConnection(true); // true означає що це реконект
+                }, delay);
+            }
+
+            // ✅ --- ДЕТЕКЦІЯ ВТРАТИ ВІДЕО СИГНАЛУ --- ✅
+            function setupVideoMonitoring() {
+                let lastVideoTime = 0;
+                let videoCheckInterval = null;
+
+                videoEl.addEventListener("timeupdate", () => {
+                    lastVideoTime = Date.now();
+                });
+
+                videoEl.addEventListener("loadstart", () => {
+                    console.log("📺 Video loading started");
+                    lastVideoTime = Date.now();
+                });
+
+                videoEl.addEventListener("loadeddata", () => {
+                    console.log("📺 Video data loaded");
+                    lastVideoTime = Date.now();
+                    connectionLostTime = null;
+                });
+
+                videoEl.addEventListener("stalled", () => {
+                    console.log("📺 Video stalled");
+                    if (!connectionLostTime) {
+                        connectionLostTime = Date.now();
+                    }
+                });
+
+                // Перевіряємо чи надходить відео кожні 3 секунди
+                videoCheckInterval = setInterval(() => {
+                    const now = Date.now();
+                    const timeSinceLastVideo = now - lastVideoTime;
+
+                    // Якщо більше 10 секунд не було відео і з'єднання активне
+                    if (
+                        timeSinceLastVideo > 10000 &&
+                        pc &&
+                        pc.iceConnectionState === "connected"
+                    ) {
+                        console.log(
+                            "⚠️ Video seems frozen, connection might be lost",
+                        );
+                        if (!connectionLostTime) {
+                            connectionLostTime = now;
+                            updateStatus(
+                                "Сигнал слабкий, спроба відновлення...",
+                                "connecting",
+                            );
+                        }
+
+                        // Якщо 20 секунд немає відео - форсуємо реконект
+                        if (timeSinceLastVideo > 20000) {
+                            console.log(
+                                "🔄 Forcing reconnect due to video freeze",
+                            );
+                            if (pc) pc.close();
+                        }
+                    }
+                }, 3000);
+
+                return () => {
+                    if (videoCheckInterval) {
+                        clearInterval(videoCheckInterval);
+                    }
+                };
+            }
+
+            // Розміри відео
+            const videoSizes = {
+                small: "480px",
+                medium: "800px",
+                large: "1200px",
+                "extra-large": "95vw",
+            };
+            document.querySelectorAll(".size-btn").forEach((btn) => {
+                btn.addEventListener("click", () => {
+                    document
+                        .querySelectorAll(".size-btn")
+                        .forEach((b) => b.classList.remove("active"));
+                    btn.classList.add("active");
+                    const size = btn.getAttribute("data-size");
+                    videoEl.style.width = videoSizes[size];
+                    localStorage.setItem("videoSize", size);
+                });
+            });
+            const savedSize = localStorage.getItem("videoSize") || "medium";
+            document.querySelector(`[data-size="${savedSize}"]`).click();
+
+            fullscreenBtn.addEventListener("click", () => {
+                if (videoEl.requestFullscreen) videoEl.requestFullscreen();
+                else if (videoEl.webkitRequestFullscreen)
+                    videoEl.webkitRequestFullscreen();
+                else if (videoEl.msRequestFullscreen)
+                    videoEl.msRequestFullscreen();
+            });
+            videoEl.addEventListener("dblclick", () => fullscreenBtn.click());
+
+            function resetUI() {
+                updateStatus("Disconnected", "disconnected");
+                controlsContainer.classList.add("hidden");
+                sizeControls.classList.add("hidden");
+                disconnectBtnContainer.classList.add("hidden");
+                connectBtnContainer.classList.remove("hidden");
+                deviceIdInput.disabled = false;
+                videoEl.srcObject = null;
+                connectionLostTime = null;
+
+                // Очищаємо таймер реконекту якщо це мануальний дисконект
+                if (isManualDisconnect && reconnectTimer) {
+                    clearTimeout(reconnectTimer);
+                    reconnectTimer = null;
+                }
+            }
+
+            function disconnect() {
+                console.log("Disconnecting explicitly by user action...");
+                isManualDisconnect = true;
+                reconnectAttempts = 0;
+
+                if (reconnectTimer) {
+                    clearTimeout(reconnectTimer);
+                    reconnectTimer = null;
+                }
+
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(
+                        JSON.stringify({
+                            action: "disconnect",
+                            device: deviceIdInput.value.trim(),
+                        }),
+                    );
+                    ws.close(1000, "Client disconnected via button");
+                }
+                if (pc) {
+                    pc.close();
+                }
+                resetUI();
+            }
+
+            function updateStatus(text, cls) {
+                statusEl.textContent = text;
+                statusEl.className = `w-full max-w-md p-3 text-center rounded-lg shadow-md ${cls}`;
+            }
+
+            speedSlider.addEventListener("input", () => {
+                speedValue.textContent = speedSlider.value;
+            });
+
+            function sendCommand(direction, turn, speed) {
+                if (!ws || ws.readyState !== WebSocket.OPEN) return;
+                const device = deviceIdInput.value.trim();
+                const msg = {
+                    device,
+                    action: direction || turn ? "control" : "stop",
+                };
+                if (direction) msg.direction = direction;
+                if (turn) msg.turn = turn;
+                if (speed != null) msg.speed = parseInt(speed, 10);
+                ws.send(JSON.stringify(msg));
+            }
+
+            async function initConnection(isReconnect = false) {
+                const device = deviceIdInput.value.trim();
+                if (!device) {
+                    alert("Enter device ID");
+                    return;
+                }
+
+                if (!isReconnect) {
+                    isManualDisconnect = false;
+                    reconnectAttempts = 0;
+                }
+
+                updateStatus(
+                    isReconnect ? "Переключення..." : "Connecting...",
+                    "connecting",
+                );
+                connectBtn.disabled = true;
+
+                // Закриваємо попередні з'єднання
+                if (pc) {
+                    pc.close();
+                }
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
+
+                pc = new RTCPeerConnection({
+                    iceServers: [
+                        { urls: "stun:stun.l.google.com:19302" },
+                        {
+                            urls: "turn:turn.metered.ca:80",
+                            username: "openrelayproject",
+                            credential: "openrelayproject",
+                        },
+                    ],
+                });
+
+                pc.addTransceiver("video", { direction: "recvonly" });
+
+                // ✅ --- ПОКРАЩЕНА ОБРОБКА СТАНУ ICE З'ЄДНАННЯ --- ✅
+                pc.oniceconnectionstatechange = () => {
+                    const s = pc.iceConnectionState;
+                    console.log("ICE connection state:", s);
+                    if (s === "connected" || s === "completed") {
+                        console.log("✅ WebRTC connection established");
+                        reconnectAttempts = 0; // Скидаємо лічильник при успішному з'єднанні
+                        updateStatus("Connected", "connected");
+                        controlsContainer.classList.remove("hidden");
+                        sizeControls.classList.remove("hidden");
+                        connectBtnContainer.classList.add("hidden");
+                        disconnectBtnContainer.classList.remove("hidden");
+                        deviceIdInput.disabled = true;
+                        connectBtn.disabled = false;
+                        setupVideoMonitoring(); // Запускаємо моніторинг відео
+                    } else if (s === "checking") {
+                        updateStatus("Перевірка з'єднання...", "connecting");
+                    } else if (s === "disconnected") {
+                        console.log("⚠️ ICE connection disconnected");
+                        updateStatus("З'єднання втрачено", "disconnected");
+                        if (!isManualDisconnect) {
+                            scheduleReconnect();
+                        }
+                    } else if (s === "failed") {
+                        console.log("❌ ICE connection failed");
+                        updateStatus("Помилка з'єднання", "disconnected");
+                        connectBtn.disabled = false;
+                        if (!isManualDisconnect) {
+                            scheduleReconnect();
+                        }
+                    } else if (s === "closed") {
+                        console.log("🔒 ICE connection closed");
+                        if (!isManualDisconnect) {
+                            scheduleReconnect();
+                        } else {
+                            resetUI();
+                        }
+                    }
+                };
+
+                pc.ontrack = (e) => {
+                    console.log("📺 Received video track");
+                    if (videoEl.srcObject !== e.streams[0]) {
+                        videoEl.srcObject = e.streams[0];
+                        videoEl
+                            .play()
+                            .catch((err) =>
+                                console.warn("Autoplay prevented:", err),
+                            );
+                    }
+                };
+
+                pc.onicecandidate = (evt) => {
+                    if (evt.candidate && ws && ws.readyState === WebSocket.OPEN)
+                        ws.send(
+                            JSON.stringify({
+                                device,
+                                ...evt.candidate.toJSON(),
+                            }),
+                        );
+                };
+
+                const proto = location.protocol === "https:" ? "wss" : "ws";
+                const wsUrl = `${proto}://${window.location.hostname}:8443/ws`;
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    console.log("🔌 WebSocket connected");
+                    ws.send(JSON.stringify({ action: "ready", device }));
+                };
+
+                ws.onmessage = async (evt) => {
+                    let raw =
+                        evt.data instanceof Blob
+                            ? await evt.data.text()
+                            : evt.data;
+
+                    console.log("⬅️ RAW MESSAGE RECEIVED:", raw);
+
+                    let msg;
+                    try {
+                        msg = JSON.parse(raw.trim());
+                    } catch (e) {
+                        console.error("❌ FAILED TO PARSE JSON:", e);
+                        console.error("   The corrupted message was ->", raw);
+                        return;
+                    }
+                    if (msg.device && msg.device !== device) return;
+
+                    if (msg.sdp && msg.type === "offer") {
+                        await pc.setRemoteDescription(
+                            new RTCSessionDescription(msg),
+                        );
+                        const answer = await pc.createAnswer();
+                        await pc.setLocalDescription(answer);
+                        ws.send(
+                            JSON.stringify({
+                                device,
+                                type: answer.type,
+                                sdp: answer.sdp,
+                            }),
+                        );
+                    } else if (msg.candidate) {
+                        await pc.addIceCandidate(new RTCIceCandidate(msg));
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    console.error("❌ WebSocket error:", error);
+                    updateStatus("Помилка WebSocket", "disconnected");
+                    connectBtn.disabled = false;
+                    if (!isManualDisconnect) {
+                        scheduleReconnect();
+                    }
+                };
+
+                ws.onclose = (event) => {
+                    console.log(
+                        "🔌 WebSocket closed:",
+                        event.code,
+                        event.reason,
+                    );
+                    if (!isManualDisconnect && event.code !== 1000) {
+                        scheduleReconnect();
+                    }
+                };
+            }
+
+            connectBtn.addEventListener("click", () => {
+                isManualDisconnect = false;
+                initConnection();
+            });
+            disconnectBtn.addEventListener("click", disconnect);
+
+            // Логіка керування кнопками та клавіатурою
+            const btns = {
+                forwardBtn: { d: "forward", t: null },
+                backwardBtn: { d: "backward", t: null },
+                leftBtn: { d: null, t: "left" },
+                rightBtn: { d: null, t: "right" },
+            };
+            Object.entries(btns).forEach(([id, { d, t }]) => {
+                const el = document.getElementById(id);
+                const send = () => sendCommand(d, t, speedSlider.value);
+                el.addEventListener("mousedown", send);
+                el.addEventListener("touchstart", (e) => {
+                    e.preventDefault();
+                    send();
+                });
+            });
+            const stopEvents = ["mouseup", "mouseleave", "touchend"];
+            Object.values(btns).forEach((cmd) => {
+                const btnId = Object.keys(btns).find(
+                    (key) => btns[key].d === cmd.d && btns[key].t === cmd.t,
+                );
+                if (btnId) {
+                    const btn = document.getElementById(btnId);
+                    stopEvents.forEach((evt) =>
+                        btn.addEventListener(evt, () =>
+                            sendCommand(null, null),
+                        ),
+                    );
+                }
+            });
+            document
+                .getElementById("stopBtn")
+                .addEventListener("click", () => sendCommand(null, null));
+
+            // ✅ --- ВИПРАВЛЕНО КЕРУВАННЯ КЛАВІАТУРОЮ --- ✅
+            const keyMap = {
+                ArrowUp: "forward",
+                w: "forward",
+                W: "forward",
+                ArrowDown: "backward",
+                s: "backward",
+                S: "backward",
+                ArrowLeft: "left",
+                a: "left",
+                A: "left",
+                ArrowRight: "right",
+                d: "right",
+                D: "right",
+            };
+
+            let activeKeys = new Set();
+
+            function updateMovementFromKeys() {
+                let direction = null,
+                    turn = null;
+                if (
+                    activeKeys.has("w") ||
+                    activeKeys.has("W") ||
+                    activeKeys.has("ArrowUp")
+                )
+                    direction = "forward";
+                else if (
+                    activeKeys.has("s") ||
+                    activeKeys.has("S") ||
+                    activeKeys.has("ArrowDown")
+                )
+                    direction = "backward";
+                if (
+                    activeKeys.has("a") ||
+                    activeKeys.has("A") ||
+                    activeKeys.has("ArrowLeft")
+                )
+                    turn = "left";
+                else if (
+                    activeKeys.has("d") ||
+                    activeKeys.has("D") ||
+                    activeKeys.has("ArrowRight")
+                )
+                    turn = "right";
+                sendCommand(direction, turn, speedSlider.value);
+            }
+
+            document.addEventListener("keydown", (e) => {
+                if (document.activeElement.tagName === "INPUT") return;
+
+                const key = e.key;
+                if (key === " ") {
+                    e.preventDefault();
+                    sendCommand(null, null, 0);
+                    activeKeys.clear();
+                    return;
+                }
+                if (keyMap[key] && !activeKeys.has(key)) {
+                    e.preventDefault();
+                    activeKeys.add(key);
+                    updateMovementFromKeys();
+                }
+            });
+
+            document.addEventListener("keyup", (e) => {
+                const key = e.key;
+                if (activeKeys.delete(key)) {
+                    e.preventDefault();
+                    updateMovementFromKeys();
+                }
+            });
+        </script>
+    </body>
+</html>
